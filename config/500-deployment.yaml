@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler-framework-plugin
+  namespace: kube-system
+  labels:
+    component: scheduler-framework-plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: scheduler-framework-plugin
+  template:
+    metadata:
+      labels:
+        component: scheduler-framework-plugin
+    spec:
+      serviceAccount: scheduler-plugin
+      priorityClassName: system-cluster-critical
+      volumes:
+      - name: scheduler-config
+        configMap:
+          name: scheduler-config
+      containers:
+      - name: scheduler-ctrl
+        image: ko://github.com/lbernick/scheduler/cmd
+        imagePullPolicy: Always
+        args:
+        - --config=/scheduler/scheduler-config.yaml
+        - --v=3
+        resources:
+          requests:
+            cpu: "50m"
+        volumeMounts:
+        - name: scheduler-config
+          mountPath: /scheduler
