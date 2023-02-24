@@ -5,7 +5,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
-const SchedulerName = "foo"
+const SchedulerName = "OneNodePerPipelineRun"
 
 type Scheduler struct{}
 
