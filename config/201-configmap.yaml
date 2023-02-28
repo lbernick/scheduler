@@ -18,6 +18,8 @@ data:
     # (See https://kubernetes.io/docs/tasks/extend-kubernetes/configure-multiple-schedulers/#define-a-kubernetes-deployment-for-the-scheduler)
     - schedulerName: "one-node-per-pipelineRun"
       plugins:
+        # See https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins for a list of all other plugins
+        # that are enabled by default
         multiPoint:
           enabled:
           - name: OneNodePerPipelineRun
