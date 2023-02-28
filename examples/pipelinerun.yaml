@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: sample-pipelinerun-
+spec:
+  pipelineSpec:
+    tasks:
+    - name: first
+      taskSpec:
+        steps:
+        - image: busybox
+          script: echo hello from first task
+    - name: parallel-1
+      taskSpec:
+        steps:
+        - image: busybox
+          script: echo hello from parallel task 1
+      runAfter: ["first"]
+    - name: parallel-2
+      taskSpec:
+        steps:
+        - image: busybox
+          script: echo hello from parallel task 2
+      runAfter: ["first"]
+    - name: last
+      taskSpec:
+        steps:
+        - image: busybox
+          script: echo hello from last task
+      runAfter: ["parallel-1", "parallel-2"]
+  podTemplate:
+    schedulerName: "one-node-per-pipelineRun"
