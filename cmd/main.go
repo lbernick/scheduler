@@ -8,9 +8,8 @@ import (
 )
 
 func main() {
-	s := scheduler.Scheduler{}
 	command := app.NewSchedulerCommand(
-		app.WithPlugin(s.Name(), scheduler.NewScheduler),
+		app.WithPlugin(scheduler.SchedulerName, scheduler.NewScheduler),
 	)
 	if err := command.Execute(); err != nil {
 		os.Exit(1)

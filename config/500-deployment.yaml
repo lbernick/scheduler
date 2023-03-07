@@ -27,7 +27,7 @@ spec:
         imagePullPolicy: Always
         args:
         - --config=/scheduler/scheduler-config.yaml
-        - --v=3
+        - --v=3 # Log level verbosity
         resources:
           requests:
             cpu: "50m"

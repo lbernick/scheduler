@@ -1169,6 +1169,7 @@ k8s.io/kubernetes/pkg/scheduler/internal/queue
 k8s.io/kubernetes/pkg/scheduler/metrics
 k8s.io/kubernetes/pkg/scheduler/metrics/resources
 k8s.io/kubernetes/pkg/scheduler/profile
+k8s.io/kubernetes/pkg/scheduler/testing
 k8s.io/kubernetes/pkg/scheduler/util
 k8s.io/kubernetes/pkg/securitycontext
 k8s.io/kubernetes/pkg/util/parsers
@@ -1182,6 +1183,9 @@ k8s.io/kubernetes/pkg/volume/util/recyclerclient
 k8s.io/kubernetes/pkg/volume/util/subpath
 k8s.io/kubernetes/pkg/volume/util/types
 k8s.io/kubernetes/pkg/volume/util/volumepathhandler
+k8s.io/kubernetes/test/e2e/framework/testfiles
+k8s.io/kubernetes/test/e2e/testing-manifests
+k8s.io/kubernetes/test/utils/image
 # k8s.io/mount-utils v0.0.0 => k8s.io/mount-utils v0.26.1
 ## explicit; go 1.19
 k8s.io/mount-utils
