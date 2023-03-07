@@ -7,9 +7,17 @@ data:
   scheduler-config.yaml: |
     apiVersion: kubescheduler.config.k8s.io/v1
     kind: KubeSchedulerConfiguration
+    # clientConnection.kubeconfig not necessary since the scheduler-plugin
+    # deployment can pick up the cluster's kubeconfig
+    # (See https://github.com/kubernetes-sigs/scheduler-plugins/issues/188#issuecomment-822475393)
     leaderElection:
-      leaderElect: true
+      leaderElect: false
     profiles:
-    - schedulerName: default-scheduler
-      pluginConfig:
-      - name: OneNodePerPipelineRun
+    # If set to "default-scheduler", this scheduler profile will be used for all pods by default
+    # Otherwise, you must set the scheduler name in the pod template
+    # (See https://kubernetes.io/docs/tasks/extend-kubernetes/configure-multiple-schedulers/#define-a-kubernetes-deployment-for-the-scheduler)
+    - schedulerName: "one-node-per-pipelineRun"
+      plugins:
+        multiPoint:
+          enabled:
+          - name: OneNodePerPipelineRun

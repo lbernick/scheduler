@@ -2,14 +2,15 @@ package scheduler
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 const SchedulerName = "OneNodePerPipelineRun"
 
-type Scheduler struct{}
-
-var _ framework.QueueSortPlugin = &Scheduler{}
+type Scheduler struct {
+	podLister corelisters.PodLister
+}
 
 func (*Scheduler) Name() string {
 	return SchedulerName
@@ -17,9 +18,5 @@ func (*Scheduler) Name() string {
 
 // NewScheduler initializes a new plugin and returns it.
 func NewScheduler(_ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	return &Scheduler{}, nil
-}
-
-func (*Scheduler) Less(*framework.QueuedPodInfo, *framework.QueuedPodInfo) bool {
-	return true
+	return &Scheduler{podLister: handle.SharedInformerFactory().Core().V1().Pods().Lister()}, nil
 }
