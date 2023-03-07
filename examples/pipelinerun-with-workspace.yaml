@@ -3,30 +3,57 @@ kind: PipelineRun
 metadata:
   generateName: sample-pipelinerun-
 spec:
+  workspaces:
+  - name: sample-ws
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Mi
   pipelineSpec:
+    workspaces:
+    - name: sample-ws
     tasks:
     - name: first
       taskSpec:
+        workspaces:
+        - name: sample-ws
         steps:
         - image: busybox
           script: echo hello from first task
+      workspaces:
+      - name: sample-ws
     - name: parallel-1
       taskSpec:
+        workspaces:
+        - name: sample-ws
         steps:
         - image: busybox
           script: echo hello from parallel task 1
       runAfter: ["first"]
+      workspaces:
+      - name: sample-ws
     - name: parallel-2
       taskSpec:
+        workspaces:
+        - name: sample-ws
         steps:
         - image: busybox
           script: echo hello from parallel task 2
       runAfter: ["first"]
+      workspaces:
+      - name: sample-ws
     - name: last
       taskSpec:
+        workspaces:
+        - name: sample-ws
         steps:
         - image: busybox
           script: echo hello from last task
       runAfter: ["parallel-1", "parallel-2"]
+      workspaces:
+      - name: sample-ws
   podTemplate:
     schedulerName: "one-node-per-pipelineRun"
