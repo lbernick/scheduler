@@ -14,20 +14,25 @@ import (
 	"k8s.io/client-go/informers"
 	testClientSet "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	fakeframework "k8s.io/kubernetes/pkg/scheduler/framework/fake"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	st "k8s.io/kubernetes/pkg/scheduler/testing"
 )
 
-type fakeSharedLister struct{}
+type fakeSharedLister struct {
+	nodes []*framework.NodeInfo
+}
+
+var _ framework.SharedLister = &fakeSharedLister{}
 
 func (f *fakeSharedLister) StorageInfos() framework.StorageInfoLister {
 	return nil
 }
 
 func (f *fakeSharedLister) NodeInfos() framework.NodeInfoLister {
-	return nil
+	return fakeframework.NodeInfoLister(f.nodes)
 }
 
 func setUpTestData(ctx context.Context, t *testing.T, pods []*corev1.Pod) *scheduler.Scheduler {
@@ -37,6 +42,9 @@ func setUpTestData(ctx context.Context, t *testing.T, pods []*corev1.Pod) *sched
 	podInformer := informerFactory.Core().V1().Pods()
 	for _, pod := range pods {
 		podInformer.Informer().GetStore().Add(pod)
+		if _, err := cs.CoreV1().Pods("").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("Failed to create pod %q: %v", pod.Name, err)
+		}
 	}
 
 	// Use the default plugins for queue sorting and binding,
@@ -64,6 +72,15 @@ func setUpTestData(ctx context.Context, t *testing.T, pods []*corev1.Pod) *sched
 		t.Fatalf("error creating new scheduler: %s", err)
 	}
 	return s.(*scheduler.Scheduler)
+}
+
+func makeNodeInfo(name string, pods []*corev1.Pod) *framework.NodeInfo {
+	ni := framework.NewNodeInfo()
+	ni.SetNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	for _, pod := range pods {
+		ni.Pods = append(ni.Pods, &framework.PodInfo{Pod: pod})
+	}
+	return ni
 }
 
 func TestNewScheduler(t *testing.T) {
@@ -164,5 +181,89 @@ func TestPreFilter(t *testing.T) {
 				t.Errorf("wrong status code: %s", d)
 			}
 		})
+	}
+}
+
+func TestFilter(t *testing.T) {
+	tcs := []struct {
+		name          string
+		podToSchedule *corev1.Pod
+		podsOnNode    []*corev1.Pod
+		wantCode      framework.Code
+	}{{
+		name: "no pods running on node",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"},
+		}},
+		podsOnNode: nil,
+		wantCode:   framework.Success,
+	}, {
+		name: "no pods for other PipelineRuns running on node",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"},
+		}},
+		podsOnNode: []*corev1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: "random-other-pod"}}},
+		wantCode:   framework.Success,
+	}, {
+		name: "pod from same PipelineRun running on node",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"},
+		}},
+		podsOnNode: []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "pod-from-same-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"}},
+		}},
+		wantCode: framework.Success,
+	}, {
+		name: "pod for other PipelineRun running on node",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"},
+		}},
+		podsOnNode: []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "pod-for-other-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-2"}},
+		}, {
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "another-pod-for-other-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-2"}},
+		}},
+		wantCode: framework.Unschedulable,
+	}, {
+		name: "pods from multiple other PipelineRuns running on node",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-1"},
+		}},
+		podsOnNode: []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "pod-for-other-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-2"}},
+		}, {
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "pod-for-different-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-3"}},
+		}},
+		wantCode: framework.Error,
+	}, {
+		name: "pod to schedule not associated with a PipelineRun",
+		podToSchedule: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{"foo": "bar"},
+		}},
+		podsOnNode: []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "pod-for-other-pr",
+				Labels: map[string]string{pipeline.PipelineRunLabelKey: "pr-2"}},
+		}},
+		wantCode: framework.Success,
+	}}
+	for _, tc := range tcs {
+		ctx := context.Background()
+		s := setUpTestData(ctx, t, tc.podsOnNode)
+		node := makeNodeInfo("node-1", tc.podsOnNode)
+		gotStatus := s.Filter(ctx, framework.NewCycleState(), tc.podToSchedule, node) // FIXME
+		if d := cmp.Diff(tc.wantCode, gotStatus.Code()); d != "" {
+			t.Errorf("wrong status code: %s", d)
+		}
 	}
 }

@@ -11,6 +11,8 @@ data:
     # deployment can pick up the cluster's kubeconfig
     # (See https://github.com/kubernetes-sigs/scheduler-plugins/issues/188#issuecomment-822475393)
     leaderElection:
+      # TODO: Figure out if we need leader election enabled.
+      # https://kubernetes.io/docs/tasks/extend-kubernetes/configure-multiple-schedulers/#enable-leader-election
       leaderElect: false
     profiles:
     # If set to "default-scheduler", this scheduler profile will be used for all pods by default

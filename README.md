@@ -2,6 +2,10 @@ This Kubernetes scheduler plugin runs in a deployment alongside the kubernetes "
 It ensures that PipelineRun's TaskRuns' pods are all scheduled to that node,
 so that parallel TaskRuns using the same PVC-backed Workspace can actually run in parallel.
 
+It also ensures that no other PipelineRuns may run on the same node.
+This improves the security boundary between PipelineRuns, but has the drawback of poor bin-packing,
+since a build TaskRun will likely need much more resources than other TaskRuns in the PipelineRun.
+
 ## Installation
 
 [Install Tekton Pipelines](https://github.com/tektoncd/pipeline/blob/main/docs/install.md)
@@ -17,11 +21,15 @@ This scheduler has only been tested on GKE version 1.25.
 
 ## How it works
 
-This scheduler implements the PreFilter extension point of the [Kubernetes scheduler framework](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/)
+This scheduler implements the PreFilter and Filter extension points of the
+[Kubernetes scheduler framework](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/)
 and is run as a second scheduler (see ["Configuring multiple schedulers"](https://kubernetes.io/docs/tasks/extend-kubernetes/configure-multiple-schedulers)).
 
 The PreFilter extension point determines what nodes the pod could be placed on by selecting pods with the same value for the label
 "tekton.dev/pipelineRun" and considering only the node those pods are running on (if any).
+
+The Filter extension points determines whether a pod can run on a given node by listing all pods associated with the node and rejecting the node if there
+are pods for other PipelineRuns on it.
 
 ## Example usage
 
@@ -39,25 +47,73 @@ Create PipelineRun:
 
 ```sh
 $ kubectl create -f examples/pipelinerun.yaml
-pipelinerun.tekton.dev/sample-pipelinerun-phbpb created
+pipelinerun.tekton.dev/sample-pipelinerun-52sfx created
 ```
 
 Get its pods and their nodes:
 ```sh
-$ PIPELINERUN_NAME=sample-pipelinerun-phbpb
+$ PIPELINERUN_NAME=sample-pipelinerun-52sfx
 $ kubectl get pods -l tekton.dev/pipelineRun=$PIPELINERUN_NAME -o=custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
 NAME                                      NODE
-sample-pipelinerun-phbpb-first-pod        gke-scheduler-default-pool-e7e66a24-c7rf
-sample-pipelinerun-phbpb-last-pod         gke-scheduler-default-pool-e7e66a24-c7rf
-sample-pipelinerun-phbpb-parallel-1-pod   gke-scheduler-default-pool-e7e66a24-c7rf
-sample-pipelinerun-phbpb-parallel-2-pod   gke-scheduler-default-pool-e7e66a24-c7rf
+sample-pipelinerun-52sfx-first-pod        gke-scheduler-default-pool-906ef80f-xsg1
+sample-pipelinerun-52sfx-last-pod         gke-scheduler-default-pool-906ef80f-xsg1
+sample-pipelinerun-52sfx-parallel-1-pod   gke-scheduler-default-pool-906ef80f-xsg1
+sample-pipelinerun-52sfx-parallel-2-pod   gke-scheduler-default-pool-906ef80f-xsg1
 ```
 
 Get events (including scheduler events) for one of the involved pods:
 ```sh
-$ POD_NAME=sample-pipelinerun-phbpb-parallel-1-pod
+$ POD_NAME=sample-pipelinerun-52sfx-parallel-1-pod
 $ kubectl get events -n default --field-selector involvedObject.name=$POD_NAME
 LAST SEEN   TYPE     REASON      OBJECT                                        MESSAGE
-88s         Normal   Scheduled   pod/sample-pipelinerun-phbpb-parallel-1-pod   Successfully assigned default/sample-pipelinerun-phbpb-parallel-1-pod to gke-scheduler-default-pool-e7e66a24-c7rf
+15m         Normal   Scheduled   pod/sample-pipelinerun-52sfx-parallel-1-pod   Successfully assigned default/sample-pipelinerun-52sfx-parallel-1-pod to gke-scheduler-default-pool-906ef80f-xsg1
 ...
 ```
+
+Now, create as many PipelineRuns as the cluster has nodes:
+
+```sh
+$ kubectl create -f examples/pipelinerun.yaml
+pipelinerun.tekton.dev/sample-pipelinerun-nwp7n created
+
+
+$ kubectl create -f examples/pipelinerun.yaml
+pipelinerun.tekton.dev/sample-pipelinerun-z6m9v created
+```
+
+Each PipelineRun runs on its own node:
+
+```sh
+$ kubectl get pods -l tekton.dev/pipelineRun=sample-pipelinerun-nwp7n -o=custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
+NAME                                      NODE
+sample-pipelinerun-nwp7n-first-pod        gke-scheduler-default-pool-e7e66a24-c7rf
+sample-pipelinerun-nwp7n-last-pod         gke-scheduler-default-pool-e7e66a24-c7rf
+sample-pipelinerun-nwp7n-parallel-1-pod   gke-scheduler-default-pool-e7e66a24-c7rf
+sample-pipelinerun-nwp7n-parallel-2-pod   gke-scheduler-default-pool-e7e66a24-c7rf
+
+$ kubectl get pods -l tekton.dev/pipelineRun=sample-pipelinerun-z6m9v -o=custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
+NAME                                      NODE
+sample-pipelinerun-z6m9v-first-pod        gke-scheduler-default-pool-ac08710a-04wh
+sample-pipelinerun-z6m9v-last-pod         gke-scheduler-default-pool-ac08710a-04wh
+sample-pipelinerun-z6m9v-parallel-1-pod   gke-scheduler-default-pool-ac08710a-04wh
+sample-pipelinerun-z6m9v-parallel-2-pod   gke-scheduler-default-pool-ac08710a-04wh
+```
+
+Now, create one more PipelineRun. It has no node to run on, so it remains pending:
+```sh
+$ kubectl create -f examples/pipelinerun.yaml
+pipelinerun.tekton.dev/sample-pipelinerun-t2lq4 created
+
+$ kubectl get po -l tekton.dev/pipelineRun=sample-pipelinerun-t2lq4 -w
+NAME                                 READY   STATUS    RESTARTS   AGE
+sample-pipelinerun-t2lq4-first-pod   0/1     Pending   0          12s
+
+$ kubectl describe po sample-pipelinerun-t2lq4-first-pod
+...
+Events:
+  Type     Reason            Age   From                      Message
+  ----     ------            ----  ----                      -------
+  Warning  FailedScheduling  76s   one-node-per-pipelineRun  0/3 nodes are available: 1 node is already running PipelineRun sample-pipelinerun-52sfx but pod is associated with PipelineRun sample-pipelinerun-t2lq4, 1 node is already running PipelineRun sample-pipelinerun-nwp7n but pod is associated with PipelineRun sample-pipelinerun-t2lq4, 1 node is already running PipelineRun sample-pipelinerun-z6m9v but pod is associated with PipelineRun sample-pipelinerun-t2lq4. preemption: 0/3 nodes are available: 3 No preemption victims found for incoming pod..
+```
+
+With the current implementation, the GKE cluster autoscaler will not scale up the node pool.
