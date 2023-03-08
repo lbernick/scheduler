@@ -5,6 +5,9 @@ import (
 
 	"github.com/lbernick/scheduler/pkg/scheduler"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
+
+	// Ensure scheme package is initialized.
+	_ "github.com/lbernick/scheduler/pkg/apis/config/scheme"
 )
 
 func main() {
