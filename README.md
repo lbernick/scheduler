@@ -2,7 +2,7 @@ This Kubernetes scheduler plugin runs in a deployment alongside the kubernetes "
 It ensures that PipelineRun's TaskRuns' pods are all scheduled to that node,
 so that parallel TaskRuns using the same PVC-backed Workspace can actually run in parallel.
 
-It also ensures that no other PipelineRuns may run on the same node.
+It can also optionally ensure that no other PipelineRuns may run on the same node (see [Configuration](#configuration) for more info).
 This improves the security boundary between PipelineRuns, but has the drawback of poor bin-packing,
 since a build TaskRun will likely need much more resources than other TaskRuns in the PipelineRun.
 
@@ -18,6 +18,19 @@ ko apply -f config
 ```
 
 This scheduler has only been tested on GKE version 1.25.
+
+## Configuration
+
+The scheduler can be configured with three `isolationStrategies`:
+
+- `colocateAlways`: Multiple PipelineRuns' pods may be scheduled to the same node.
+- `colocateCompleted`: Pods may be scheduled to a node if there are no pods from other PipelineRuns
+currently running on it (completed PipelineRuns are OK).
+- `isolateAlways`: Pods will not be scheduled to a node that has other PipelineRuns on it, regardless of whether they are running or completed.
+This option requires an architecture that deletes PipelineRuns after completion,
+or creates new nodes when a PipelineRun cannot be run on existing ones.
+
+These options can be configured in [`scheduler-config.yaml`](./config/201-configmap.yaml).
 
 ## How it works
 
@@ -69,6 +82,8 @@ LAST SEEN   TYPE     REASON      OBJECT                                        M
 15m         Normal   Scheduled   pod/sample-pipelinerun-52sfx-parallel-1-pod   Successfully assigned default/sample-pipelinerun-52sfx-parallel-1-pod to gke-scheduler-default-pool-906ef80f-xsg1
 ...
 ```
+
+### Example with IsolateAlways
 
 Now, create as many PipelineRuns as the cluster has nodes:
 

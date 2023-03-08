@@ -25,3 +25,7 @@ data:
         multiPoint:
           enabled:
           - name: OneNodePerPipelineRun
+      pluginConfig:
+      - name: OneNodePerPipelineRun
+        args:
+          isolationStrategy: "colocateCompleted" # Options are "colocateAlways", "colocateCompleted" and "isolateAlways"

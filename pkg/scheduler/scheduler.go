@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lbernick/scheduler/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,6 +22,7 @@ const SchedulerName = "OneNodePerPipelineRun"
 type Scheduler struct {
 	podLister corelisters.PodLister
 	podClient v1.PodInterface
+	config    *config.OneNodePerPipelineRunArgs
 }
 
 var _ framework.PreFilterPlugin = &Scheduler{}
@@ -34,10 +36,22 @@ func (*Scheduler) Name() string {
 // and score or filter nodes based on which are expected to fit a PipelineRun
 
 // NewScheduler initializes a new plugin and returns it.
-func NewScheduler(_ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
+func NewScheduler(args runtime.Object, handle framework.Handle) (framework.Plugin, error) {
+	cfg, ok := args.(*config.OneNodePerPipelineRunArgs)
+	if !ok {
+		return nil, fmt.Errorf("want args to be of type OneNodePerPipelineRunArgs, got %T", args)
+	}
+	cfg.SetDefaults()
+	klog.V(3).Infof("Running with strategy %s", cfg.IsolationStrategy)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid args: %s", err)
+	}
+
 	return &Scheduler{
 		podLister: handle.SharedInformerFactory().Core().V1().Pods().Lister(),
 		podClient: handle.ClientSet().CoreV1().Pods(""),
+		config:    cfg,
 	}, nil
 }
 
@@ -92,23 +106,30 @@ func (*Scheduler) RemovePod(ctx context.Context, cycleState *framework.CycleStat
 	return framework.NewStatus(framework.Success, "")
 }
 
-// Filter filters out nodes that already have pods from other PipelineRuns on them.
-// If there are other pods from the same PipelineRun running on a node, filters out all nodes but that one.
+// Filter optionally filters out nodes that already have pods from other PipelineRuns on them.
+//
+// If IsolationStrategy is set to "colocateAlways", Filter will allow nodes that have other PipelineRuns running on them.
+// If IsolationStrategy is set to "colocateCompleted", Filter will allow nodes that have other completed PipelineRuns on them.
+// If IsolationStrategy is set to "isolateAlways", Filter will not allow nodes that have other PipelineRuns on them,
+// regardless of whether they are running or completed.
 //
 // Fails if there are no available nodes. In this case, the cluster autoscaler is expected to create a new node
 // for the pods that cannot go on available nodes.
-//
-// This scheduler plugin should be used with an architecture where PipelineRuns are deleted a short time after they
-// finish executing. (Otherwise, the number of nodes will only continue to grow.)
-// TODO: Should the node be deleted once the PipelineRun is deleted from it?
-// (This is probably required in order to meet SLSA L3 build isolation requirements.)
-// Or can new PipelineRuns be scheduled onto the node where previous PipelineRuns ran but were deleted?
+// TODO: This does not actually trigger a scale up, probably because the cluster autoscaler will only scale up if
+// the node is out of resources.
 //
 // TODO: How to handle the situation where there are pods from different PipelineRuns in the queue,
 // and both may be assigned before one is bound?
 // Use app group strategy or similar: https://kccnceu2022.sched.com/event/ytlA/network-aware-scheduling-in-kubernetes-jose-santos-ghent-university
 func (s *Scheduler) Filter(
 	ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+	strategy := s.config.IsolationStrategy
+
+	if strategy == config.StrategyColocateAlways {
+		// No need to filter out nodes running pods from other PipelineRuns
+		return framework.NewStatus(framework.Success)
+	}
+
 	prName, ok := pod.ObjectMeta.Labels[pipeline.PipelineRunLabelKey]
 	klog.V(3).Infof("filter pod %s associated with PipelineRun %s", pod.Name, prName)
 	if !ok {
@@ -118,19 +139,34 @@ func (s *Scheduler) Filter(
 
 	existingPRNames := sets.Set[string]{}
 	nodeName := nodeInfo.Node().Name
+	var pods []corev1.Pod
 
-	// List all the pods associated with the node, rather than using nodeInfo.Pods,
-	// since nodeInfo.Pods does not contain completed pods.
-	// TODO: This probably has the same scaling problems as pod anti-affinity-- explore other options.
-	pods, err := s.podClient.List(ctx, metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
-	})
+	switch strategy {
 
-	if err != nil {
-		return framework.NewStatus(framework.Success, fmt.Sprintf("error listing pods for node %s", nodeName))
+	// TODO: Both of these strategies probably have the same scaling problems as pod anti-affinity-- explore other options.
+	case config.StrategyIsolateAlways:
+		// List all the pods associated with the node, rather than using nodeInfo.Pods,
+		// since nodeInfo.Pods does not contain completed pods.
+		podList, err := s.podClient.List(ctx, metav1.ListOptions{
+			FieldSelector: "spec.nodeName=" + nodeName,
+		})
+
+		if err != nil {
+			return framework.NewStatus(framework.Success, fmt.Sprintf("error listing pods for node %s", nodeName))
+		}
+		pods = podList.Items
+	case config.StrategyColocateCompleted:
+		// List all the pods running on the node
+		for _, podInfo := range nodeInfo.Pods {
+			if podInfo.Pod != nil {
+				pods = append(pods, *podInfo.Pod)
+			}
+		}
+	default:
+		return framework.NewStatus(framework.Error, fmt.Sprintf("unsupported strategy %s", strategy))
 	}
 
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		prNameForPod, ok := pod.ObjectMeta.Labels[pipeline.PipelineRunLabelKey]
 		if ok {
 			existingPRNames.Insert(prNameForPod)
