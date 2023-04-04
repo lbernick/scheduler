@@ -95,7 +95,8 @@ func (s *Scheduler) PreFilter(ctx context.Context, state *framework.CycleState, 
 	return &framework.PreFilterResult{NodeNames: existingNodes}, framework.NewStatus(framework.Success, fmt.Sprintf("found scheduled pods related to PipelineRun %s for pod %s", prName, pod.Name))
 }
 
-// PreFilterExtensions is needed to implement the PreFilterPlugin interface but is not used
+// PreFilterExtensions is used for updating plugin state when a pod is added or removed (for preemption).
+// This plugin is stateless, so these functions are not needed
 func (s *Scheduler) PreFilterExtensions() framework.PreFilterExtensions { return s }
 
 func (*Scheduler) AddPod(ctx context.Context, cycleState *framework.CycleState, podToSchedule *corev1.Pod, podToAdd *framework.PodInfo, nodeInfo *framework.NodeInfo) *framework.Status {
@@ -193,6 +194,6 @@ func (s *Scheduler) Filter(
 	existingPr := existingPRNames.UnsortedList()[0]
 	klog.V(3).Infof("existing pods associated with different PipelineRun %s on node", existingPr)
 	// Unschedulable = cannot schedule, but that might change with preemption
-	// UnschedulableAndUnresolvable would also work here
+	// UnschedulableAndUnresolvable would not work here, since preemption might make this pod schedulable and this condition would prevent preemption
 	return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("node is already running PipelineRun %s but pod is associated with PipelineRun %s", existingPr, prName))
 }
