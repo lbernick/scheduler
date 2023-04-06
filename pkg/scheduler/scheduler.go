@@ -178,22 +178,22 @@ func (s *Scheduler) Filter(
 		// This node has multiple PipelineRuns' pods on it
 		// TODO: How best to handle this error case?
 		// Should we fail to schedule any more pods for these PipelineRuns?
-		klog.V(1).Infof("found pods associated with multiple PipelineRuns %s", existingPRNames)
+		klog.V(1).Infof("found pods associated with multiple PipelineRuns %s on node %s", existingPRNames, nodeName)
 		return framework.NewStatus(framework.Error, fmt.Sprintf("found pods for multiple PipelineRuns running on the same node: %s", existingPRNames.UnsortedList()))
 	}
 
 	if existingPRNames.Len() == 0 {
-		klog.V(3).Infof("no pods associated with PipelineRun %s on node", prName)
-		return framework.NewStatus(framework.Success, "no pods associated with a PipelineRun running on node")
+		klog.V(3).Infof("no pods associated with PipelineRun %s on node %s", prName, nodeName)
+		return framework.NewStatus(framework.Success, "no pods associated with a PipelineRun running on node %s", nodeName)
 	}
 
 	if existingPRNames.Has(prName) {
-		klog.V(3).Infof("existing pods associated with PipelineRun %s on node", prName)
-		return framework.NewStatus(framework.Success, fmt.Sprintf("can schedule pod %s onto node with pods from same PipelineRun %s", pod.Name, prName))
+		klog.V(3).Infof("existing pods associated with PipelineRun %s on node %s", prName, nodeName)
+		return framework.NewStatus(framework.Success, fmt.Sprintf("can schedule pod %s onto node %s with pods from same PipelineRun %s", pod.Name, nodeName, prName))
 	}
 	existingPr := existingPRNames.UnsortedList()[0]
-	klog.V(3).Infof("existing pods associated with different PipelineRun %s on node", existingPr)
+	klog.V(3).Infof("existing pods associated with different PipelineRun %s on node %s", existingPr, nodeName)
 	// Unschedulable = cannot schedule, but that might change with preemption
 	// UnschedulableAndUnresolvable would not work here, since preemption might make this pod schedulable and this condition would prevent preemption
-	return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("node is already running PipelineRun %s but pod is associated with PipelineRun %s", existingPr, prName))
+	return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("node %s is already running PipelineRun %s but pod is associated with PipelineRun %s", nodeName, existingPr, prName))
 }
