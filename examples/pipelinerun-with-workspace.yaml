@@ -1,4 +1,4 @@
-apiVersion: tekton.dev/v1beta1
+apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   generateName: sample-pipelinerun-
@@ -55,5 +55,6 @@ spec:
       runAfter: ["parallel-1", "parallel-2"]
       workspaces:
       - name: sample-ws
-  podTemplate:
-    schedulerName: "one-node-per-pipelineRun"
+  taskRunTemplate:
+    podTemplate:
+      schedulerName: "one-node-per-pipelineRun"
