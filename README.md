@@ -1,3 +1,7 @@
+# Overview
+
+This project has an [accompanying blog post](https://www.leebernick.com/posts/scheduler-plugin/) with more info on what it does and why I built it.
+
 This Kubernetes scheduler plugin runs in a deployment alongside the kubernetes "default-scheduler".
 It ensures that PipelineRun's TaskRuns' pods are all scheduled to that node,
 so that parallel TaskRuns using the same PVC-backed Workspace can actually run in parallel.
